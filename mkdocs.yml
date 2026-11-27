@@ -1,4 +1,4 @@
-site_name: Fish Speech
+site_name: Fish Audio
 site_description: Targeting SOTA TTS solutions.
 site_url: https://speech.fish.audio
 
@@ -8,11 +8,11 @@ repo_url: https://github.com/fishaudio/fish-speech
 edit_uri: blob/main/docs
 
 # Copyright
-copyright: Copyright &copy; 2023-2024 by Fish Audio
+copyright: Copyright &copy; 2023-2025 by Fish Audio
 
 theme:
   name: material
-  favicon: assets/figs/logo-circle.png
+  favicon: assets/logo.svg
   language: en
   features:
     - content.action.edit
@@ -25,8 +25,7 @@ theme:
     - search.highlight
     - search.share
     - content.code.copy
-  icon:
-    logo: fontawesome/solid/fish
+  logo: assets/logo.svg
 
   palette:
     # Palette toggle for automatic mode
@@ -56,11 +55,9 @@ theme:
         code: Roboto Mono
 
 nav:
-  - Introduction: index.md
-  - Finetune: finetune.md
-  - Inference: inference.md
-  - Start Agent: start_agent.md
-  - Samples: samples.md
+  - Introduction: en/index.md
+  - Installation: en/install.md
+  - Inference: en/inference.md
 
 # Plugins
 plugins:
@@ -71,7 +68,9 @@ plugins:
         - zh
         - ja
         - pt
+        - es
         - ko
+        - ar
   - i18n:
       docs_structure: folder
       languages:
@@ -84,36 +83,43 @@ plugins:
           build: true
           nav:
             - 介绍: zh/index.md
-            - 微调: zh/finetune.md
+            - 安装: zh/install.md
             - 推理: zh/inference.md
-            - 启动Agent: zh/start_agent.md
-            - 例子: zh/samples.md
         - locale: ja
           name: 日本語
           build: true
           nav:
-            - Fish Speech の紹介: ja/index.md
-            - 微調整: ja/finetune.md
+            - はじめに: ja/index.md
+            - インストール: ja/install.md
             - 推論: ja/inference.md
-            - スタートエージェント: ja/start_agent.md
-            - サンプル: ja/samples.md
         - locale: pt
           name: Português (Brasil)
           build: true
           nav:
             - Introdução: pt/index.md
-            - Ajuste Fino: pt/finetune.md
+            - Instalação: pt/install.md
             - Inferência: pt/inference.md
-            - Agente inicial: pt/start_agent.md
-            - Amostras: pt/samples.md
+        - locale: es
+          name: Español
+          build: true
+          nav:
+            - Introducción: es/index.md
+            - Instalación: es/install.md
+            - Inferencia: es/inference.md
         - locale: ko
           name: 한국어
           build: true
           nav:
             - 소개: ko/index.md
-            - 파인튜닝: ko/finetune.md
+            - 설치: ko/install.md
             - 추론: ko/inference.md
-            - 샘플: ko/samples.md
+        - locale: ar
+          name: العربية
+          build: true
+          nav:
+            - مقدمة: ar/index.md
+            - التثبيت: ar/install.md
+            - الاستنتاج: ar/inference.md
 
 markdown_extensions:
   - pymdownx.highlight:

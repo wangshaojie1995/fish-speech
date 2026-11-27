@@ -1,211 +1,148 @@
-# 介绍
+<div align="center">
+<h1>Fish Speech</h1>
 
-<div>
-<a target="_blank" href="https://discord.gg/Es5qTB9BcN">
-<img alt="Discord" src="https://img.shields.io/discord/1214047546020728892?color=%23738ADB&label=Discord&logo=discord&logoColor=white&style=flat-square"/>
-</a>
-<a target="_blank" href="http://qm.qq.com/cgi-bin/qm/qr?_wv=1027&k=jCKlUP7QgSm9kh95UlBoYv6s1I-Apl1M&authKey=xI5ttVAp3do68IpEYEalwXSYZFdfxZSkah%2BctF5FIMyN2NqAa003vFtLqJyAVRfF&noverify=0&group_code=593946093">
-<img alt="QQ" src="https://img.shields.io/badge/QQ Group-%2312B7F5?logo=tencent-qq&logoColor=white&style=flat-square"/>
-</a>
-<a target="_blank" href="https://hub.docker.com/r/fishaudio/fish-speech">
-<img alt="Docker" src="https://img.shields.io/docker/pulls/fishaudio/fish-speech?style=flat-square&logo=docker"/>
+<p><a href="../en/">English</a> | <strong>简体中文</strong> | <a href="../pt/">Portuguese</a> | <a href="../ja/">日本語</a> | <a href="../ko/">한국어</a> | <a href="../ar/">العربية</a> | <a href="../es/">Español</a></p>
+
+<a href="https://www.producthunt.com/products/fish-speech?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_source=badge-fish&#0045;audio&#0045;s1" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1023740&theme=light&period=daily&t=1761164814710" alt="Fish&#0032;Audio&#0032;S1 - Expressive&#0032;Voice&#0032;Cloning&#0032;and&#0032;Text&#0045;to&#0045;Speech | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
+<a href="https://trendshift.io/repositories/7014" target="_blank">
+    <img src="https://trendshift.io/api/badge/repositories/7014" alt="fishaudio%2Ffish-speech | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/>
 </a>
 </div>
 
-!!! warning "警告"
-    我们不对代码库的任何非法使用承担任何责任. 请参阅您当地关于 DMCA (数字千年法案) 和其他相关法律法规. <br/>
-    此代码库与所有模型根据 CC-BY-NC-SA-4.0 许可证发布.
+<br>
 
-<p align="center">
-   <img src="../assets/figs/diagram.png" width="75%">
-</p>
+<div align="center">
+    <img src="https://count.getloli.com/get/@fish-speech?theme=asoul" /><br>
+</div>
 
-## 要求
+<br>
 
-- GPU 内存: 4GB (用于推理), 8GB (用于微调)
-- 系统: Linux, Windows
+<div align="center">
+    <a target="_blank" href="https://discord.gg/Es5qTB9BcN">
+        <img alt="Discord" src="https://img.shields.io/discord/1214047546020728892?color=%23738ADB&label=Discord&logo=discord&logoColor=white&style=flat-square"/>
+    </a>
+    <a target="_blank" href="https://hub.docker.com/r/fishaudio/fish-speech">
+        <img alt="Docker" src="https://img.shields.io/docker/pulls/fishaudio/fish-speech?style=flat-square&logo=docker"/>
+    </a>
+    <a target="_blank" href="https://pd.qq.com/s/bwxia254o">
+      <img alt="QQ Channel" src="https://img.shields.io/badge/QQ-blue?logo=tencentqq">
+    </a>
+</div>
 
-## Windows 配置
+<div align="center">
+    <a target="_blank" href="https://huggingface.co/fishaudio/drama-3">
+        <img alt="HuggingFace Drama 3" src="https://img.shields.io/badge/🤗%20-Drama%203-orange"/>
+    </a>
+    <a target="_blank" href="https://huggingface.co/fishaudio/s2-pro">
+        <img alt="HuggingFace S2-Pro" src="https://img.shields.io/badge/🤗%20-S2--Pro-orange"/>
+    </a>
+    <a target="_blank" href="https://arxiv.org/abs/2610.18010">
+        <img alt="Paper | Technical Report" src="https://img.shields.io/badge/Paper-Technical_Report-b31b1b?style=flat-square"/>
+    </a>
+</div>
 
-Windows 专业用户可以考虑 WSL2 或 docker 来运行代码库。
+!!! info "许可声明"
+    此代码库及其相关的模型权重均在 **FISH AUDIO COMMUNITY LICENSE** 下发布。S2-Pro 权重仍适用 Fish Audio Research License。更多详情请参考 [LICENSE](https://github.com/fishaudio/fish-speech/blob/main/LICENSE)。
 
-```bash
-# 创建一个 python 3.10 虚拟环境, 你也可以用 virtualenv
-conda create -n fish-speech python=3.10
-conda activate fish-speech
+!!! warning "法律免责声明"
+    我们不对代码库的任何非法使用承担责任。请参考您当地关于 DMCA 和其他相关法律的法规。
 
-# 安装 pytorch
-pip3 install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 --index-url https://download.pytorch.org/whl/cu121
+## 快速开始
 
-# 安装 fish-speech
-pip3 install -e .
+### 文档入口
 
-# (开启编译加速) 安装 triton-windows
-pip install https://github.com/AnyaCoder/fish-speech/releases/download/v0.1.0/triton_windows-0.1.0-py3-none-any.whl
+- [安装](https://speech.fish.audio/zh/install/)：环境配置、下载权重、Docker 部署
+- [推理](https://speech.fish.audio/zh/inference/)：命令行推理、API Server、WebUI 推理
+
+> [!IMPORTANT]
+> **我们强烈建议追求效率的用户使用 SGLang-Omni 进行推理，请参考 [SGLang-Omni README](https://github.com/sgl-project/sglang-omni/blob/main/sglang_omni/models/fishaudio_drama_3/README.md)。**
+
+### LLM Agent 指南
+
+```
+请先阅读 https://speech.fish.audio/zh/install/ ，并按文档安装和配置 Fish Audio Drama 3（或 S2-Pro）。
 ```
 
-Windows 非专业用户可考虑以下为免 Linux 环境的基础运行方法（附带模型编译功能，即 `torch.compile`）：
+## 模型
 
-1. 解压项目压缩包。
-2. 点击 `install_env.bat` 安装环境。
-3. 若需要开启编译加速则执行这一步:
-    1. 使用如下链接下载 LLVM 编译器。
-        - [LLVM-17.0.6（原站站点下载）](https://huggingface.co/fishaudio/fish-speech-1/resolve/main/LLVM-17.0.6-win64.exe?download=true)
-        - [LLVM-17.0.6（镜像站点下载）](https://hf-mirror.com/fishaudio/fish-speech-1/resolve/main/LLVM-17.0.6-win64.exe?download=true)
-        - 下载完 `LLVM-17.0.6-win64.exe` 后，双击进行安装，选择合适的安装位置，最重要的是勾选 `Add Path to Current User` 添加环境变量。
-        - 确认安装完成。
-    2. 下载安装 Microsoft Visual C++ 可再发行程序包，解决潜在 .dll 丢失问题。
-        - [MSVC++ 14.40.33810.0 下载](https://aka.ms/vs/17/release/vc_redist.x64.exe)
-    3. 下载安装 Visual Studio 社区版以获取 MSVC++ 编译工具, 解决 LLVM 的头文件依赖问题。
-        - [Visual Studio 下载](https://visualstudio.microsoft.com/zh-hans/downloads/)
-        - 安装好 Visual Studio Installer 之后，下载 Visual Studio Community 2022
-        - 如下图点击`修改`按钮，找到`使用C++的桌面开发`项，勾选下载
-    4. 下载安装 [CUDA Toolkit 12.x](https://developer.nvidia.com/cuda-12-1-0-download-archive?target_os=Windows&target_arch=x86_64)
-4. 双击 `start.bat` 打开训练推理 WebUI 管理界面. 如有需要，可照下列提示修改`API_FLAGS`.
+| 模型 | 大小 | 权重 | 说明 |
+|------|------|------|------|
+| **Drama 3** | 35B-A3B（每 token 激活 3B） | [HuggingFace](https://huggingface.co/fishaudio/drama-3) | 新一代旗舰模型，面向多角色场景与长内容，可多轮修正与局部编辑 |
+| S2-Pro | 4B 参数 | [HuggingFace](https://huggingface.co/fishaudio/s2-pro) | 前一代旗舰模型，有更快的推理速度 |
 
-!!! info "可选"
+模型类型由权重目录中的 `config.json` 自动识别，两者共用同一套命令行与 API Server。
 
-    想启动 推理 WebUI 界面？编辑项目根目录下的 `API_FLAGS.txt`, 前三行修改成如下格式:
-    ```
-    --infer
-    # --api
-    # --listen ...
-    ...
-    ```
+---
 
-!!! info "可选"
+## Fish Audio Drama 3
 
-    想启动 API 服务器？编辑项目根目录下的 `API_FLAGS.txt`, 前三行修改成如下格式:
-    ```
-    # --infer
-    --api
-    --listen ...
-    ...
-    ```
+**S2-Pro 基础上全方位升级的新一代语音生成模型。**
 
-!!! info "可选"
+Drama 3 与 S2 系列一样支持多说话人、声音克隆和自然语言控制，但在长音频处理、交互方式和可编辑性上有明显突破。
 
-    双击 `run_cmd.bat` 进入本项目的 conda/python 命令行环境
+### 主要特性
 
-## Linux 配置
+- **多轮导演修正**：对前一轮的生成结果直接进行指导（"再温和一点、更伤感一些"），模型结合上下文重新生成，不用从头再来。
+- **语音填空与精准编辑**：像改文本一样改语音，进行「把周三换成周四」这类局部替换，同时前后音色与过渡保持自然。
+- **剧本式多角色场景**：按剧本描述一次性配出含多个角色的完整场景，并支持流式长文本合成。
+- **长对话与长语音**：面向长录音、长效会话设计，长内容中角色与音色保持稳定。
+- **表现力更强**：笑声、哭腔、耳语、戏剧化情绪不再受reference影响，情感张力更接近真人。
+- **多语言声音克隆**：跨语言音色克隆的错误率（CER / WER）取得了新层次的SOTA。
+- **自然语言标签控制**：沿用 `[whisper]`、`[angry]`、`[laughing]` 等行内标签控制情绪与韵律。
 
-有关详细信息，请参见 [pyproject.toml](../../pyproject.toml)。
-```bash
-# 创建一个 python 3.10 虚拟环境, 你也可以用 virtualenv
-conda create -n fish-speech python=3.10
-conda activate fish-speech
+### 相比 S2-Pro 的能力变化
 
-# 安装 pytorch
-pip3 install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1
+| 能力 | S2-Pro | Drama 3 |
+| --- | --- | --- |
+| 多说话人 | 支持 | 支持，剧本式多角色场景 |
+| 声音克隆 | 支持 | 支持，多语言错误率更低 |
+| 行内自然语言指令 | 支持 | 支持 |
+| 局部修改 / 语音填空 | 不支持 | 支持 |
+| 多轮导演修正 | 不支持 | 支持 |
+| 长内容 | 分块生成 | 长对话与长语音，支持流式 |
+| 强情绪表现（笑声、哭腔、耳语） | 一般 | 更强 |
 
-# (Ubuntu / Debian 用户) 安装 sox + ffmpeg
-apt install libsox-dev ffmpeg
+### 效果
 
-# (Ubuntu / Debian 用户) 安装 pyaudio
-apt install build-essential \
-    cmake \
-    libasound-dev \
-    portaudio19-dev \
-    libportaudio2 \
-    libportaudiocpp0
-    
-# 安装 fish-speech
-pip3 install -e .[stable]
-```
+在公开基准上相对 S2 有显著跃升：多语言声音克隆（MiniMax Multilingual Testset）、自由形式语音编辑（Ming-Freeform）、多轮情绪修正（Step-Audio-Edit）三项上，控制精度、多语言错误率（CER / WER）与风格准确度全面超越前代。
 
-## macos 配置
+完整架构、训练方案与评测结果见[技术报告](https://arxiv.org/abs/2610.18010)。
 
-如果您想在 MPS 上进行推理，请添加 `--device mps` 标志。
-有关推理速度的比较，请参考 [此 PR](https://github.com/fishaudio/fish-speech/pull/461#issuecomment-2284277772)。
+---
 
-!!! 警告
-    `compile` 选项在 Apple Silicon 设备上尚未正式支持，因此推理速度没有提升的保证。
+## Fish Audio S2-Pro
 
-```bash
-# create a python 3.10 virtual environment, you can also use virtualenv
-conda create -n fish-speech python=3.10
-conda activate fish-speech
-# install pytorch
-pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1
-# install fish-speech
-pip install -e .[stable]
-```
+我们的上一代旗舰模型，具有自然语言可控与富有情绪化的语音生成能力，支持近百种语言，且大小可供消费级GPU部署。
 
-## Docker 配置
+- **行内自然语言指令**：用 `[pause]`、`[excited]`、`[whisper]` 等标签在文本任意位置控制韵律与情绪。
+- **原生多说话人生成**：一段文本里用说话人 ID 区分角色，无需为每个角色单独生成后拼接。
+- **快速语音克隆**：10–30 秒参考音频即可复刻音色。
+- **单次生成**：可以一次性流式地生成长音频。
+- **生产级流式**：单张 H200 上 RTF 0.195、首音频延迟约 100 ms。
 
-1. 安装 NVIDIA Container Toolkit：
+体验在线演示请访问 [Fish Audio 网站](https://fish.audio/)，更多细节见[博客文章](https://fish.audio/blog/fish-audio-open-sources-s2/)与[技术报告](https://arxiv.org/abs/2603.08823)。
 
-    Docker 如果想使用 GPU 进行模型训练和推理，需要安装 NVIDIA Container Toolkit ：
+<details>
+<summary><b>S2-Pro 基准测试结果（点击展开）</b></summary>
 
-    对于 Ubuntu 用户：
+| 基准 | Fish Audio S2 |
+|------|------|
+| Seed-TTS Eval — WER（中文） | **0.54%**（总体最佳） |
+| Seed-TTS Eval — WER（英文） | **0.99%**（总体最佳） |
+| Audio Turing Test（含指令） | **0.515** 后验均值 |
+| EmergentTTS-Eval — 胜率 | **81.88%**（总体最高） |
+| Fish Instruction Benchmark — TAR | **93.3%** |
+| Fish Instruction Benchmark — 质量 | **4.51 / 5.0** |
+| 多语言（MiniMax Testset）— 最佳 WER | **24** 种语言中的 **11** 种 |
+| 多语言（MiniMax Testset）— 最佳 SIM | **24** 种语言中的 **17** 种 |
 
-    ```bash
-    # 添加远程仓库
-    curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg \
-        && curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-            sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
-            sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-    # 安装 nvidia-container-toolkit
-    sudo apt-get update
-    sudo apt-get install -y nvidia-container-toolkit
-    # 重启 Docker 服务
-    sudo systemctl restart docker
-    ```
+在 Seed-TTS Eval 上，S2 在所有已评估模型（包括闭源系统）中实现了最低 WER：Qwen3-TTS（0.77/1.24）、MiniMax Speech-02（0.99/1.90）、Seed-TTS（1.12/2.25）。在 Audio Turing Test 上，0.515 相比 Seed-TTS（0.417）提升 24%，相比 MiniMax-Speech（0.387）提升 33%。在 EmergentTTS-Eval 中，S2 在副语言学（91.61% 胜率）、疑问句（84.41%）和句法复杂度（83.39%）等维度表现尤为突出。
 
-    对于使用其他 Linux 发行版的用户，安装指南请参考：[NVIDIA Container Toolkit Install-guide](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)。
+<img src="../assets/totalability.png" width=200%>
 
-    注：对于中国大陆的用户，您可能需要使用代理来完成相关工具的安装。
+</details>
 
-2. 拉取并运行 fish-speech 镜像
-
-    ```shell
-    # 拉取镜像
-    docker pull fishaudio/fish-speech:latest-dev
-    # 运行镜像
-    docker run -it \
-        --name fish-speech \
-        --gpus all \
-        -p 7860:7860 \
-        fishaudio/fish-speech:latest-dev \
-        zsh
-    # 如果需要使用其他端口，请修改 -p 参数为 YourPort:7860
-    ```
-
-3. 下载模型依赖
-
-    确保您在 docker 容器内的终端，然后再从我们的 huggingface 仓库下载所需的 `vqgan` 和 `llama` 模型。
-
-    ```bash
-    huggingface-cli download fishaudio/fish-speech-1.5 --local-dir checkpoints/fish-speech-1.5
-    ```
-
-    对于中国大陆用户，可以通过镜像站下载。
-
-    ```bash
-    HF_ENDPOINT=https://hf-mirror.com huggingface-cli download fishaudio/fish-speech-1.5 --local-dir checkpoints/fish-speech-1.5
-    ```
-
-4. 配置环境变量，访问 WebUI
-
-    在 docker 容器内的终端，输入 `export GRADIO_SERVER_NAME="0.0.0.0"` ，从而让外部可以访问 docker 内的 gradio 服务。
-    接着在 docker 容器内的终端，输入 `python tools/run_webui.py` 即可开启 WebUI 服务。
-
-    如果是 WSL 或者是 MacOS ，访问 [http://localhost:7860](http://localhost:7860) 即可打开 WebUI 界面。
-
-    如果是部署在服务器上，更换 localhost 为您的服务器 ip 即可。
-
-## 更新日志
-
-- 2024/09/10: 更新了 Fish-Speech 到 1.4, 增加了数据集大小， quantizer n_groups 4 -> 8.
-- 2024/07/02: 更新了 Fish-Speech 到 1.2 版本，移除 VITS Decoder，同时极大幅度提升 zero-shot 能力.
-- 2024/05/10: 更新了 Fish-Speech 到 1.1 版本，引入了 VITS Decoder 来降低口胡和提高音色相似度.
-- 2024/04/22: 完成了 Fish-Speech 1.0 版本, 大幅修改了 VQGAN 和 LLAMA 模型.
-- 2023/12/28: 添加了 `lora` 微调支持.
-- 2023/12/27: 添加了 `gradient checkpointing`, `causual sampling` 和 `flash-attn` 支持.
-- 2023/12/19: 更新了 Webui 和 HTTP API.
-- 2023/12/18: 更新了微调文档和相关例子.
-- 2023/12/17: 更新了 `text2semantic` 模型, 支持无音素模式.
-- 2023/12/13: 测试版发布, 包含 VQGAN 模型和一个基于 LLAMA 的语言模型 (只支持音素).
+---
 
 ## 致谢
 
@@ -214,5 +151,39 @@ pip install -e .[stable]
 - [GPT VITS](https://github.com/innnky/gpt-vits)
 - [MQTTS](https://github.com/b04901014/MQTTS)
 - [GPT Fast](https://github.com/pytorch-labs/gpt-fast)
-- [Transformers](https://github.com/huggingface/transformers)
 - [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS)
+- [Qwen3](https://github.com/QwenLM/Qwen3)
+
+## 技术报告
+
+```bibtex
+@misc{fish-speech-v1.4,
+      title={Fish-Speech: Leveraging Large Language Models for Advanced Multilingual Text-to-Speech Synthesis},
+      author={Shijia Liao and Yuxuan Wang and Tianyu Li and Yifan Cheng and Ruoyi Zhang and Rongzhi Zhou and Yijin Xing},
+      year={2024},
+      eprint={2411.01156},
+      archivePrefix={arXiv},
+      primaryClass={cs.SD},
+      url={https://arxiv.org/abs/2411.01156},
+}
+
+@misc{liao2026fishaudios2technical,
+      title={Fish Audio S2 Technical Report}, 
+      author={Shijia Liao and Yuxuan Wang and Songting Liu and Yifan Cheng and Ruoyi Zhang and Tianyu Li and Shidong Li and Yisheng Zheng and Xingwei Liu and Qingzheng Wang and Zhizhuo Zhou and Jiahua Liu and Xin Chen and Dawei Han},
+      year={2026},
+      eprint={2603.08823},
+      archivePrefix={arXiv},
+      primaryClass={cs.SD},
+      url={https://arxiv.org/abs/2603.08823}, 
+}
+
+@misc{liao2026fishaudiodrama3technical,
+      title={Fish Audio Drama 3 Technical Report}, 
+      author={Dawei Han and Shidong Li and Shijia Liao and Jiahua Liu and Songting Liu and Qingzheng Wang and Yuxuan Wang and Xin Chen and Yifan Cheng and Tianyu Li and Gangin Park and Xuehao Yang and Chang Zeng and Haoyang Zhang and Ruoyi Zhang and Xiangyu Zhang},
+      year={2026},
+      eprint={2610.18010},
+      archivePrefix={arXiv},
+      primaryClass={cs.SD},
+      url={https://arxiv.org/abs/2610.18010}, 
+}
+```

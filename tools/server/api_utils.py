@@ -1,10 +1,22 @@
+import io
 from argparse import ArgumentParser
 from http import HTTPStatus
 from typing import Annotated, Any
 
+import numpy as np
 import ormsgpack
+import soundfile as sf
+import torch
+import torchaudio
 from baize.datastructures import ContentType
-from kui.asgi import HTTPException, HttpRequest
+from kui.asgi import (
+    HTTPException,
+    HttpRequest,
+    JSONResponse,
+    request,
+)
+from loguru import logger
+from pydantic import BaseModel
 
 from fish_speech.inference_engine import TTSInferenceEngine
 from fish_speech.utils.schema import ServeTTSRequest
@@ -13,22 +25,52 @@ from tools.server.inference import inference_wrapper as inference
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument("--mode", type=str, choices=["agent", "tts"], default="tts")
-    parser.add_argument("--load-asr-model", action="store_true")
+    parser.add_argument("--mode", type=str, choices=["tts"], default="tts")
     parser.add_argument(
         "--llama-checkpoint-path",
         type=str,
-        default="checkpoints/fish-speech-1.5",
+        default="checkpoints/s2-pro",
+        help="S2-Pro (dual_ar) or Drama 3 (fish_omni) checkpoint directory; "
+        "the model type is detected from its config.json.",
     )
     parser.add_argument(
         "--decoder-checkpoint-path",
         type=str,
-        default="checkpoints/fish-speech-1.5/firefly-gan-vq-fsq-8x1024-21hz-generator.pth",
+        default=None,
+        help="DAC codec weights. Defaults to <checkpoint>/codec.pth, else the "
+        "sibling s2-pro/codec.pth.",
     )
-    parser.add_argument("--decoder-config-name", type=str, default="firefly_gan_vq")
-    parser.add_argument("--device", type=str, default="cuda")
-    parser.add_argument("--half", action="store_true")
-    parser.add_argument("--compile", action="store_true")
+    parser.add_argument("--decoder-config-name", type=str, default="modded_dac_vq")
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda",
+        help="Drama 3 only: plain 'cuda' takes the first min(4, visible) GPUs, or list "
+        "them ('cuda:0,cuda:1,...'); the last one holds the tower and the codec.",
+    )
+    parser.add_argument(
+        "--half",
+        action="store_true",
+        help="float16 instead of bfloat16 (Drama 3 switches by itself before SM80).",
+    )
+    parser.add_argument(
+        "--compile", action="store_true", help="torch.compile (S2-Pro only)."
+    )
+    parser.add_argument(
+        "--reference-sampling",
+        action="store_true",
+        help="Drama 3 only: sample with Fish Audio's reference sampling, which reads "
+        "the request's epsilon_cutoff (default 1e-3). Recommended request parameters: "
+        "temperature 1.0, top_p 1.0.",
+    )
+    parser.add_argument(
+        "--reference-sampling-fallback",
+        choices=["argmax", "ras"],
+        default="argmax",
+        help="Under --reference-sampling, what replaces a main token found among the "
+        "last 16: the most probable candidate (argmax) or a draw at temperature 1.0, "
+        "top-p 0.95, top-k 30 (ras).",
+    )
     parser.add_argument("--max-text-length", type=int, default=0)
     parser.add_argument("--listen", type=str, default="127.0.0.1:8080")
     parser.add_argument("--workers", type=int, default=1)
@@ -41,7 +83,10 @@ class MsgPackRequest(HttpRequest):
     async def data(
         self,
     ) -> Annotated[
-        Any, ContentType("application/msgpack"), ContentType("application/json")
+        Any,
+        ContentType("application/msgpack"),
+        ContentType("application/json"),
+        ContentType("multipart/form-data"),
     ]:
         if self.content_type == "application/msgpack":
             return ormsgpack.unpackb(await self.body)
@@ -49,20 +94,41 @@ class MsgPackRequest(HttpRequest):
         elif self.content_type == "application/json":
             return await self.json
 
+        elif self.content_type == "multipart/form-data":
+            return await self.form
+
         raise HTTPException(
             HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
-            headers={"Accept": "application/msgpack, application/json"},
+            headers={
+                "Accept": "application/msgpack, application/json, multipart/form-data"
+            },
         )
 
 
 async def inference_async(req: ServeTTSRequest, engine: TTSInferenceEngine):
     for chunk in inference(req, engine):
+        print("Got chunk")
         if isinstance(chunk, bytes):
             yield chunk
 
 
 async def buffer_to_async_generator(buffer):
     yield buffer
+
+
+def encode_audio(audio: np.ndarray, sample_rate: int, audio_format: str) -> bytes:
+    """A mono float waveform as a wav, mp3, opus or headerless 16-bit pcm file."""
+    buffer = io.BytesIO()
+    if audio_format == "pcm":
+        sf.write(buffer, audio, sample_rate, format="RAW", subtype="PCM_16")
+    elif audio_format == "opus":
+        # Opus takes only 8, 12, 16, 24 or 48 kHz.
+        waveform = torch.from_numpy(np.asarray(audio, dtype=np.float32))
+        waveform = torchaudio.functional.resample(waveform, sample_rate, 48000)
+        sf.write(buffer, waveform.numpy(), 48000, format="OGG", subtype="OPUS")
+    else:
+        sf.write(buffer, audio, sample_rate, format=audio_format)
+    return buffer.getvalue()
 
 
 def get_content_type(audio_format):
@@ -72,5 +138,65 @@ def get_content_type(audio_format):
         return "audio/flac"
     elif audio_format == "mp3":
         return "audio/mpeg"
+    elif audio_format == "opus":
+        return "audio/ogg"
     else:
         return "application/octet-stream"
+
+
+def wants_json(req):
+    """Helper method to determine if the client wants a JSON response
+
+    Parameters
+    ----------
+    req : Request
+        The request object
+
+    Returns
+    -------
+    bool
+        True if the client wants a JSON response, False otherwise
+    """
+    q = req.query_params.get("format", "").strip().lower()
+    if q in {"json", "application/json", "msgpack", "application/msgpack"}:
+        return q in ("json", "application/json")
+    accept = req.headers.get("Accept", "").strip().lower()
+    return "application/json" in accept and "application/msgpack" not in accept
+
+
+def format_response(response: BaseModel, status_code=200):
+    """
+    Helper function to format responses consistently based on client preference.
+
+    Parameters
+    ----------
+    response : BaseModel
+        The response object to format
+    status_code : int
+        HTTP status code (default: 200)
+
+    Returns
+    -------
+    Response
+        Formatted response in the client's preferred format
+    """
+    try:
+        if wants_json(request):
+            return JSONResponse(
+                response.model_dump(mode="json"), status_code=status_code
+            )
+
+        return (
+            ormsgpack.packb(
+                response,
+                option=ormsgpack.OPT_SERIALIZE_PYDANTIC,
+            ),
+            status_code,
+            {"Content-Type": "application/msgpack"},
+        )
+    except Exception as e:
+        logger.error(f"Error formatting response: {e}", exc_info=True)
+        # Fallback to JSON response if formatting fails
+        return JSONResponse(
+            {"error": "Response formatting failed", "details": str(e)}, status_code=500
+        )

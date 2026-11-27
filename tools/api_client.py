@@ -1,5 +1,6 @@
 import argparse
 import base64
+import time
 import wave
 
 import ormsgpack
@@ -13,9 +14,17 @@ from fish_speech.utils.schema import ServeReferenceAudio, ServeTTSRequest
 
 
 def parse_args():
-
     parser = argparse.ArgumentParser(
-        description="Send a WAV file and text to a server and receive synthesized audio.",
+        description="Send text to a Fish Speech TTS server and receive synthesized audio.",
+        epilog=(
+            "Model selection note:\n"
+            "  The base TTS model is selected by the server you call. For example, if the\n"
+            "  server was started with checkpoints/s2-pro, this client will use S2-Pro\n"
+            "  automatically. There is no separate per-request --model flag.\n\n"
+            "Examples:\n"
+            '  python tools/api_client.py -u http://127.0.0.1:8080/v1/tts -t "Hello from Fish Speech"\n'
+            '  python tools/api_client.py -u http://127.0.0.1:8080/v1/tts -t "Hello" --reference_id my-speaker'
+        ),
         formatter_class=argparse.RawTextHelpFormatter,
     )
 
@@ -24,7 +33,7 @@ def parse_args():
         "-u",
         type=str,
         default="http://127.0.0.1:8080/v1/tts",
-        help="URL of the server",
+        help="URL of the TTS server. The server decides which base model is loaded.",
     )
     parser.add_argument(
         "--text", "-t", type=str, required=True, help="Text to be synthesized"
@@ -34,7 +43,7 @@ def parse_args():
         "-id",
         type=str,
         default=None,
-        help="ID of the reference model to be used for the speech\n(Local: name of folder containing audios and files)",
+        help="ID of the reference voice to use for synthesis\n(Local: name of folder containing audios and files)",
     )
     parser.add_argument(
         "--reference_audio",
@@ -53,6 +62,15 @@ def parse_args():
         help="Reference text for voice synthesis",
     )
     parser.add_argument(
+        "--reference_speaker",
+        "-rs",
+        type=int,
+        nargs="+",
+        default=None,
+        help="Speaker ID (0-15) of each reference audio, written as <|speaker:N|> "
+        "before reference texts that do not start with a speaker tag",
+    )
+    parser.add_argument(
         "--output",
         "-o",
         type=str,
@@ -65,9 +83,8 @@ def parse_args():
         default=True,
         help="Whether to play audio after receiving data",
     )
-    parser.add_argument("--normalize", type=bool, default=True)
     parser.add_argument(
-        "--format", type=str, choices=["wav", "mp3", "flac"], default="wav"
+        "--format", type=str, choices=["wav", "pcm", "mp3", "opus"], default="wav"
     )
     parser.add_argument(
         "--latency",
@@ -76,30 +93,43 @@ def parse_args():
         choices=["normal", "balanced"],
         help="Used in api.fish.audio/v1/tts",
     )
+    # Sampling: unset means the server uses the loaded model family's defaults.
     parser.add_argument(
         "--max_new_tokens",
         type=int,
-        default=1024,
-        help="Maximum new tokens to generate. \n0 means no limit.",
+        default=None,
+        help="Maximum new tokens to generate per text chunk. Unset uses the "
+        "server's default, 1024; 0 means the model's own cap (S2-Pro: the context "
+        "length; Drama 3: 600 per chunk, 2048 with --single_chunk).",
     )
     parser.add_argument(
-        "--chunk_length", type=int, default=200, help="Chunk length for synthesis"
+        "--single_chunk",
+        action="store_true",
+        help="Drama 3 only: generate the whole text in one pass instead of chunks",
     )
     parser.add_argument(
-        "--top_p", type=float, default=0.7, help="Top-p sampling for synthesis"
+        "--chunk_length",
+        type=int,
+        default=200,
+        help="Chunk length for synthesis (S2-Pro only; Drama 3 uses ~300-byte chunks)",
+    )
+    parser.add_argument(
+        "--top_p", type=float, default=None, help="Top-p sampling for synthesis"
     )
     parser.add_argument(
         "--repetition_penalty",
         type=float,
-        default=1.2,
-        help="Repetition penalty for synthesis",
+        default=None,
+        help="Accepted for compatibility; S2-Pro and Drama 3 ignore it and use "
+        "repetition-aware sampling",
     )
     parser.add_argument(
-        "--temperature", type=float, default=0.7, help="Temperature for sampling"
+        "--temperature", type=float, default=None, help="Temperature for sampling"
     )
 
+    # parser.add_argument("--streaming", type=bool, default=False, help="Enable streaming response")
     parser.add_argument(
-        "--streaming", type=bool, default=False, help="Enable streaming response"
+        "--streaming", action="store_true", help="Enable streaming response"
     )
     parser.add_argument(
         "--channels", type=int, default=1, help="Number of audio channels"
@@ -116,8 +146,7 @@ def parse_args():
         "--seed",
         type=int,
         default=None,
-        help="`None` means randomized inference, otherwise deterministic.\n"
-        "It can't be used for fixing a timbre.",
+        help="`None` means randomized inference, otherwise deterministic.\nIt can't be used for fixing a timbre.",
     )
     parser.add_argument(
         "--api_key",
@@ -130,40 +159,54 @@ def parse_args():
 
 
 if __name__ == "__main__":
-
     args = parse_args()
 
     idstr: str | None = args.reference_id
     # priority: ref_id > [{text, audio},...]
     if idstr is None:
-        ref_audios = args.reference_audio
-        ref_texts = args.reference_text
-        if ref_audios is None:
-            byte_audios = []
-        else:
-            byte_audios = [audio_to_bytes(ref_audio) for ref_audio in ref_audios]
-        if ref_texts is None:
-            ref_texts = []
-        else:
-            ref_texts = [read_ref_text(ref_text) for ref_text in ref_texts]
+        ref_audios = args.reference_audio or []
+        ref_texts = args.reference_text or []
+
+        if len(ref_audios) != len(ref_texts):
+            raise SystemExit(
+                "--reference_audio and --reference_text must be given the same number "
+                f"of values, got {len(ref_audios)} audio(s) and {len(ref_texts)} text(s)."
+            )
+
+        byte_audios = []
+        for ref_audio in ref_audios:
+            audio_bytes = audio_to_bytes(ref_audio)
+            if audio_bytes is None:
+                raise SystemExit(f"Reference audio file not found: {ref_audio}")
+            byte_audios.append(audio_bytes)
+
+        ref_texts = [read_ref_text(ref_text) for ref_text in ref_texts]
+        ref_speakers = args.reference_speaker or [None] * len(ref_audios)
+        if len(ref_speakers) != len(ref_audios):
+            raise SystemExit(
+                "--reference_speaker must be given once per --reference_audio, got "
+                f"{len(ref_speakers)} speaker(s) and {len(ref_audios)} audio(s)."
+            )
     else:
         byte_audios = []
         ref_texts = []
+        ref_speakers = []
         pass  # in api.py
 
     data = {
         "text": args.text,
         "references": [
-            ServeReferenceAudio(
-                audio=ref_audio if ref_audio is not None else b"", text=ref_text
+            ServeReferenceAudio(audio=ref_audio, text=ref_text, speaker=speaker)
+            for ref_text, ref_audio, speaker in zip(
+                ref_texts, byte_audios, ref_speakers
             )
-            for ref_text, ref_audio in zip(ref_texts, byte_audios)
         ],
         "reference_id": idstr,
-        "normalize": args.normalize,
         "format": args.format,
+        "latency": args.latency,
         "max_new_tokens": args.max_new_tokens,
         "chunk_length": args.chunk_length,
+        "single_chunk": args.single_chunk,
         "top_p": args.top_p,
         "repetition_penalty": args.repetition_penalty,
         "temperature": args.temperature,
@@ -174,15 +217,22 @@ if __name__ == "__main__":
 
     pydantic_data = ServeTTSRequest(**data)
 
+    print("Sending request")
+    start_time = time.time()
     response = requests.post(
         args.url,
-        data=ormsgpack.packb(pydantic_data, option=ormsgpack.OPT_SERIALIZE_PYDANTIC),
+        params={"format": "msgpack"},
+        # Unset (None) fields are left out so servers that predate optional sampling
+        # fields fall back to their own defaults instead of rejecting null.
+        data=ormsgpack.packb(pydantic_data.model_dump(exclude_none=True)),
         stream=args.streaming,
         headers={
             "authorization": f"Bearer {args.api_key}",
             "content-type": "application/msgpack",
         },
     )
+    end_time = time.time()
+    print(f"Request took {end_time - start_time} seconds")
 
     if response.status_code == 200:
         if args.streaming:
@@ -198,9 +248,18 @@ if __name__ == "__main__":
             wf.setframerate(args.rate)
 
             stream_stopped_flag = False
+            # The server opens the stream with a 44-byte WAV header (older ones
+            # did not); only the samples after it are played and saved.
+            header = b""
 
             try:
                 for chunk in response.iter_content(chunk_size=1024):
+                    if header is not None:
+                        header += chunk
+                        if len(header) < 44:
+                            continue
+                        chunk = header[44:] if header.startswith(b"RIFF") else header
+                        header = None
                     if chunk:
                         stream.write(chunk)
                         wf.writeframesraw(chunk)
@@ -218,7 +277,18 @@ if __name__ == "__main__":
             with open(audio_path, "wb") as audio_file:
                 audio_file.write(audio_content)
 
-            audio = AudioSegment.from_file(audio_path, format=args.format)
+            if args.format == "pcm":  # headerless 16-bit mono
+                audio = AudioSegment.from_file(
+                    audio_path,
+                    format="raw",
+                    sample_width=2,
+                    frame_rate=args.rate,
+                    channels=1,
+                )
+            else:  # opus comes in an Ogg container
+                audio = AudioSegment.from_file(
+                    audio_path, format="ogg" if args.format == "opus" else args.format
+                )
             if args.play:
                 play(audio)
             print(f"Audio has been saved to '{audio_path}'.")

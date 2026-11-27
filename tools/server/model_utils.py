@@ -15,11 +15,15 @@ HUGE_GAP_THRESHOLD = 4000
 @torch.no_grad()
 @torch.autocast(device_type="cuda", dtype=torch.half)
 def batch_encode(model, audios_list: list[bytes]):
+    # Get sample rate from model
+    if hasattr(model, "spec_transform"):
+        sample_rate = model.spec_transform.sample_rate
+    else:
+        sample_rate = model.sample_rate
+
     audios: list[torch.Tensor] = [
         (
-            torch.from_numpy(
-                librosa.load(io.BytesIO(audio), sr=model.spec_transform.sample_rate)[0]
-            )[None]
+            torch.from_numpy(librosa.load(io.BytesIO(audio), sr=sample_rate)[0])[None]
             if isinstance(audio, bytes)
             else audio
         )
@@ -29,7 +33,7 @@ def batch_encode(model, audios_list: list[bytes]):
     lengths = torch.tensor([audio.shape[-1] for audio in audios], device=model.device)
     max_length = lengths.max().item()
 
-    print(f"Encode max length: {max_length / model.spec_transform.sample_rate:.2f}s")
+    print(f"Encode max length: {max_length / sample_rate:.2f}s")
 
     padded = torch.stack(
         [
@@ -67,63 +71,12 @@ def batch_vqgan_decode(model, features):
     ).to(model.device)
 
     # If bs too large, we do micro batch decode
-    audios, audio_lengths = [], []
+    audios = []
     for i in range(0, padded.shape[0], MICRO_BATCH_SIZE):
-        audio, audio_length = model.decode(
-            padded[i : i + MICRO_BATCH_SIZE],
-            feature_lengths=lengths[i : i + MICRO_BATCH_SIZE],
-        )
-        audios.append(audio)
-        audio_lengths.append(audio_length)
-    audios = torch.cat(audios, dim=0)
-    audio_lengths = torch.cat(audio_lengths, dim=0)
-    audios, audio_lengths = audios.cpu(), audio_lengths.cpu()
+        audios.append(model.from_indices(padded[i : i + MICRO_BATCH_SIZE]).float())
+    audios = torch.cat(audios, dim=0).cpu()
+    # Each code frame decodes to frame_length samples (the codec is causal,
+    # so the zero padding on the right does not affect the kept part).
+    audio_lengths = (lengths * model.frame_length).cpu()
 
     return [audio[..., :length].numpy() for audio, length in zip(audios, audio_lengths)]
-
-
-@torch.no_grad()
-def batch_asr(model, lock, audios, sr, language="auto"):
-    resampled_audios = []
-    for audio in audios:
-        audio = torchaudio.functional.resample(audio, sr, ASR_SAMPLE_RATE)
-        assert audio.ndim == 1
-        resampled_audios.append(audio)
-
-    with lock:
-        res = model.generate(
-            input=resampled_audios,
-            batch_size=len(resampled_audios),
-            language=language,
-            use_itn=True,
-        )
-
-    results = []
-    for r, audio in zip(res, audios):
-        text = r["text"]
-        text = re.sub(r"<\|.*?\|>", "", text)
-        duration = len(audio) / sr * 1000
-        huge_gap = False
-
-        if "timestamp" in r and len(r["timestamp"]) > 2:
-            for timestamp_a, timestamp_b in zip(
-                r["timestamp"][:-1], r["timestamp"][1:]
-            ):
-                # If there is a gap of more than 4 seconds, we consider it as a huge gap
-                if timestamp_b[0] - timestamp_a[1] > HUGE_GAP_THRESHOLD:
-                    huge_gap = True
-                    break
-
-            # Doesn't make sense to have a huge gap at the end
-            if duration - r["timestamp"][-1][1] > HUGE_GAP_THRESHOLD:
-                huge_gap = True
-
-        results.append(
-            {
-                "text": text,
-                "duration": duration,
-                "huge_gap": huge_gap,
-            }
-        )
-
-    return results

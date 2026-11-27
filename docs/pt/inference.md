@@ -1,123 +1,227 @@
 # Inferência
 
-Suporte para inferência por linha de comando, API HTTP e interface web (WebUI).
+O Fish Audio disponibiliza dois modelos: **S2-Pro** e **Drama 3**. Ambos partilham a mesma linha de comandos e o mesmo servidor API, e o tipo de modelo é lido do `config.json` do diretório de pesos, pelo que cada secção abaixo está organizada como "tarefa → comando de cada modelo".
+
+Conclua primeiro a [Instalação](install.md) e descarregue os [pesos do modelo](install.md#baixar-pesos).
+
+!!! warning "Limites de execução do Drama 3"
+    O Drama 3 só funciona em GPUs NVIDIA: CPU, Apple MPS e AMD ROCm não são suportados, tal como `--compile`. Veja os [Requisitos](install.md#requisitos) para a memória GPU.
 
 !!! note
-    O processo de raciocínio, em geral, consiste em várias partes:
-
-    1. Codificar cerca de 10 segundos de voz usando VQGAN.
-    2. Inserir os tokens semânticos codificados e o texto correspondente no modelo de linguagem como um exemplo.
-    3. Dado um novo trecho de texto, fazer com que o modelo gere os tokens semânticos correspondentes.
-    4. Inserir os tokens semânticos gerados no VITS / VQGAN para decodificar e gerar a voz correspondente.
-
-## Baixar modelos
-Baixe os modelos `vqgan` e `llama` necessários do nosso repositório Hugging Face.
-
-```bash
-huggingface-cli download fishaudio/fish-speech-1.5 --local-dir checkpoints/fish-speech-1.5
-```
+    A V100 e outras GPUs anteriores a SM80 não têm bfloat16, pelo que o Drama 3 passa a float16 (mantendo o fluxo residual em fp32). Este caminho ainda não foi testado em hardware real; se obtiver silêncio, ruído ou um erro "non-finite logits", abra uma issue.
 
 ## Inferência por Linha de Comando
-### 1. Gerar prompt a partir da voz:
+
+### S2-Pro
+
+O S2-Pro usa um pipeline de três passos: "tokens VQ → tokens Semânticos → áudio".
 
 !!! note
-    Se quiser permitir que o modelo escolha aleatoriamente um timbre de voz, pule esta etapa.
+    Se quer deixar o modelo escolher aleatoriamente o timbre, pode saltar o passo 1.
 
-!!! warning "Aviso de Versão Futura"
-    Mantivemos a interface acessível a partir do caminho original (tools/vqgan/infernce.py), mas esta interface poderá ser removida em algumas versões futuras. Por favor, altere o seu código o mais breve possível.
+**1. Obter tokens VQ do áudio de referência**
 
 ```bash
-python fish_speech/models/vqgan/inference.py \
-    -i "paimon.wav" \
-    --checkpoint-path "checkpoints/fish-speech-1.5/firefly-gan-vq-fsq-8x1024-21hz-generator.pth"
+python fish_speech/models/dac/inference.py \
+    -i "test.wav" \
+    --checkpoint-path "checkpoints/s2-pro/codec.pth"
 ```
 
-Você deverá obter um arquivo `fake.npy`.
+Deverá obter um `fake.npy` e um `fake.wav`.
 
-### 2. Gerar tokens semânticos a partir do texto:
-
-!!! warning "Aviso de Versão Futura"
-    Mantivemos a interface acessível a partir do caminho original (tools/llama/generate.py), mas esta interface poderá ser removida em algumas versões futuras. Por favor, altere o seu código o mais breve possível.
+**2. Gerar tokens Semânticos a partir do texto:**
 
 ```bash
 python fish_speech/models/text2semantic/inference.py \
-    --text "O texto que você deseja converter" \
-    --prompt-text "Seu texto de referência" \
+    --text "O texto que quer converter" \
+    --prompt-text "O seu texto de referência" \
     --prompt-tokens "fake.npy" \
-    --checkpoint-path "checkpoints/fish-speech-1.5" \
-    --num-samples 2 \
-    --compile
+    # --compile
 ```
 
-Este comando criará um arquivo `codes_N` no diretório de trabalho, onde N é um número inteiro começando de 0.
+Este comando cria um ficheiro `codes_N` no diretório de trabalho, onde N é um inteiro a partir de 0.
 
 !!! note
-    Use `--compile` para fundir kernels CUDA para ter uma inferência mais rápida (~30 tokens/segundo -> ~500 tokens/segundo).
-    Mas, se não planeja usar a aceleração CUDA, comente o parâmetro `--compile`.
+    Pode querer usar `--compile` para fundir kernels CUDA e acelerar a inferência. No entanto, recomendamos a nossa otimização de aceleração de inferência sglang.
+    Se não planeia usar aceleração, comente o parâmetro `--compile`.
 
 !!! info
-    Para GPUs que não suportam bf16, pode ser necessário usar o parâmetro `--half`.
+    Em GPUs sem suporte a bf16, pode precisar do parâmetro `--half`.
 
-### 3. Gerar vocais a partir de tokens semânticos:
-
-#### Decodificador VQGAN
-
-!!! warning "Aviso de Versão Futura"
-    Mantivemos a interface acessível a partir do caminho original (tools/vqgan/infernce.py), mas esta interface poderá ser removida em algumas versões futuras. Por favor, altere o seu código o mais breve possível.
+**3. Gerar voz a partir dos tokens semânticos:**
 
 ```bash
-python fish_speech/models/vqgan/inference.py \
+python fish_speech/models/dac/inference.py \
     -i "codes_0.npy" \
-    --checkpoint-path "checkpoints/fish-speech-1.5/firefly-gan-vq-fsq-8x1024-21hz-generator.pth"
 ```
 
-## Inferência por API HTTP
+Depois disso obterá um ficheiro `fake.wav`.
 
-Fornecemos uma API HTTP para inferência. O seguinte comando pode ser usado para iniciar o servidor:
+### Drama 3
+
+O Drama 3 faz tudo num comando; `--output` escreve diretamente o áudio descodificado:
 
 ```bash
-python -m tools.api_server \
+python fish_speech/models/text2semantic/inference.py \
+    --checkpoint-path checkpoints/drama-3 \
+    --text "O texto que quer converter" \
+    --prompt-audio "reference.wav" \
+    --prompt-text "O seu texto de referência" \
+    --output "output.wav" \
+    --device cuda:0
+```
+
+Em GPUs mais antigas, indique vários dispositivos, por exemplo `--device cuda:0,cuda:1,cuda:2,cuda:3`; o último fica com o descodificador de áudio e o codec. Apenas `--device cuda` usa até às quatro primeiras GPUs visíveis.
+
+## Servidor API
+
+### Iniciar o S2-Pro
+
+```bash
+python tools/api_server.py \
     --listen 0.0.0.0:8080 \
-    --llama-checkpoint-path "checkpoints/fish-speech-1.5" \
-    --decoder-checkpoint-path "checkpoints/fish-speech-1.5/firefly-gan-vq-fsq-8x1024-21hz-generator.pth" \
-    --decoder-config-name firefly_gan_vq
+    --llama-checkpoint-path checkpoints/s2-pro \
+    --decoder-checkpoint-path checkpoints/s2-pro/codec.pth \
+    --decoder-config-name modded_dac_vq
 ```
 
-> Para acelerar a inferência, adicione o parâmetro `--compile`.
-
-Depois disso, é possível visualizar e testar a API em http://127.0.0.1:8080/.
-
-Abaixo está um exemplo de envio de uma solicitação usando `tools/api_client.py`.
+### Iniciar o Drama 3
 
 ```bash
-python -m tools.api_client \
-    --text "Texto a ser inserido" \
-    --reference_audio "Caminho para o áudio de referência" \
-    --reference_text "Conteúdo de texto do áudio de referência" \
-    --streaming True
+python tools/api_server.py \
+    --listen 0.0.0.0:8080 \
+    --llama-checkpoint-path checkpoints/drama-3 \
+    --device cuda:0
 ```
 
-O comando acima indica a síntese do áudio desejada de acordo com as informações do áudio de referência e a retorna em modo de streaming.
+!!! note
+    O Drama 3 não suporta `--compile`. Em GPUs mais antigas, liste vários dispositivos com `--device`; o último fica com o descodificador de áudio e o codec.
 
-!!! info
-    Para aprender mais sobre parâmetros disponíveis, você pode usar o comando `python -m tools.api_client -h`
+Opções de arranque partilhadas por ambos os modelos:
 
-## Inferência por WebUI
+- `--compile`: ativa a otimização `torch.compile` (apenas S2-Pro)
+- `--half`: usa o modo fp16
+- `--api-key`: exige autenticação por bearer token
+- `--workers`: define o número de processos de trabalho
+- `--max-text-length`: limita o comprimento do texto de um pedido; 0 significa sem limite
 
-Para iniciar a WebUI de Inferência execute o seguinte comando:
+Verificação de saúde:
 
 ```bash
-python -m tools.run_webui \
-    --llama-checkpoint-path "checkpoints/fish-speech-1.5" \
-    --decoder-checkpoint-path "checkpoints/fish-speech-1.5/firefly-gan-vq-fsq-8x1024-21hz-generator.pth" \
-    --decoder-config-name firefly_gan_vq
+curl -X GET http://127.0.0.1:8080/v1/health
 ```
-> Para acelerar a inferência, adicione o parâmetro `--compile`.
+
+A resposta `{"status":"ok"}` indica que o serviço está operacional.
+
+### Endpoints da API
+
+| Método | Caminho | Descrição |
+| --- | --- | --- |
+| `POST` | `/v1/tts` | Texto para voz; o corpo do pedido é msgpack |
+| `GET` | `/v1/tts/defaults` | Valores de amostragem predefinidos do modelo carregado |
+| `GET` | `/v1/health` | Verificação de saúde |
+| `POST` | `/v1/vqgan/encode` | Áudio de referência → tokens VQ |
+| `POST` | `/v1/vqgan/decode` | Tokens VQ → áudio |
+| `POST` | `/v1/references/add` | Guarda uma voz de referência; campos `id`, `audio` (ficheiro), `text` |
+| `GET` | `/v1/references/list` | Lista as vozes guardadas |
+| `POST` | `/v1/references/update` | Renomeia; campos `old_reference_id`, `new_reference_id` |
+| `DELETE` | `/v1/references/delete` | Remove; campo `reference_id` |
+| `GET` | `/ui` | WebUI (incluída na imagem Docker; tem de ser construída em execução a partir do código) |
+
+Depois de guardar a voz, use-a com `--reference_id` (o campo de áudio precisa do tipo MIME, caso contrário o servidor não o reconhece):
+
+```bash
+curl -X POST http://127.0.0.1:8080/v1/references/add \
+    -F id=my-speaker \
+    -F "audio=@reference.wav;type=audio/wav" \
+    -F text="Transcrição do áudio de referência"
+
+python tools/api_client.py --url http://127.0.0.1:8080/v1/tts \
+    --text "Hello" --reference_id my-speaker --output demo
+```
+
+### Enviar um pedido
+
+O modelo usado depende dos pesos carregados pelo servidor no arranque; não há campo de modelo no pedido.
+
+```bash
+python tools/api_client.py \
+    --url http://127.0.0.1:8080/v1/tts \
+    --text "Hello from Fish Speech" \
+    --output demo
+```
+
+Parâmetros mais usados:
+
+| Parâmetro | Descrição |
+| --- | --- |
+| `--reference_audio` / `--reference_text` | Áudio de referência e a respetiva transcrição; ambos precisam do mesmo número de valores |
+| `--reference_speaker` | ID do falante (0–15) de cada áudio de referência, escrito como prefixo <code>&lt;&#124;speaker:N&#124;&gt;</code> (o uso principal no Drama 3) |
+| `--reference_id` | Usa uma voz de referência guardada, por exemplo `my-speaker` |
+| `--format` | Formato de saída: `wav`, `pcm`, `mp3` ou `opus`; predefinição `wav` |
+| `--streaming` | Devolve o áudio em fluxo |
+| `--single_chunk` | Gera o texto todo de uma vez, sem dividir em blocos (apenas Drama 3) |
+| `--chunk_length` | Comprimento do bloco, 200 por predefinição (apenas S2-Pro) |
+| `--max_new_tokens` | Máximo de frames por bloco; se vazio usa a predefinição do servidor, 1024; 0 usa o limite do próprio modelo |
+| `--temperature` / `--top_p` | Amostragem; se vazio usa as predefinições do modelo (0.7 / 0.7) |
+| `--seed` | Fixa a semente aleatória (não serve para fixar o timbre) |
+| `--api_key` | Obrigatório quando o servidor usa `--api-key` |
+| `--no-play` | Não reproduz o áudio no final (por predefinição reproduz; necessário em máquinas sem dispositivo de áudio) |
 
 !!! note
-    Você pode salvar antecipadamente o arquivo de rótulos e o arquivo de áudio de referência na pasta `references` do diretório principal (que você precisa criar), para que possa chamá-los diretamente na WebUI.
-    
-!!! note
-    É possível usar variáveis de ambiente do Gradio, como `GRADIO_SHARE`, `GRADIO_SERVER_PORT`, `GRADIO_SERVER_NAME`, para configurar a WebUI.
+    `repetition_penalty` existe apenas por compatibilidade; o S2-Pro e o Drama 3 ignoram-no e usam amostragem com perceção de repetição incorporada.
 
-Divirta-se!
+!!! tip
+    Para iniciar o servidor com Docker, veja [Configuração do Docker](install.md#configuração-do-docker) (a imagem do servidor já inclui a WebUI: abra `http://localhost:8080/ui` depois de arrancar).
+
+## Diferenças entre modelos
+
+| Item | S2-Pro | Drama 3 |
+| --- | --- | --- |
+| Hardware | GPU / CPU | apenas NVIDIA GPU, sem `--compile` |
+| Texto longo | Dividido por `chunk_length` | Dividido automaticamente em blocos de cerca de 300 bytes (UTF-8) com no máximo três falantes, cortando nos fins de frase sempre que possível; o primeiro bloco e o mais recente são reenviados como contexto |
+| Limite por passagem | 1024 frames por lote por padrão; `max_new_tokens=0` gera até o comprimento do contexto | 1024 frames (cerca de 47 segundos) por bloco por padrão, o que com `single_chunk` vale para o texto inteiro; `max_new_tokens=0` significa 600 frames por bloco, ou 2048 (cerca de 95 segundos) com `single_chunk`; sempre limitado a 10.240 frames menos o comprimento do prompt |
+| Falantes | A ordem das referências define o papel | As etiquetas <code>&lt;&#124;speaker:0&#124;&gt;</code>–<code>&lt;&#124;speaker:15&#124;&gt;</code> definem o papel; a ordem das referências não importa |
+| `chunk_length` | Tem efeito | Não tem efeito |
+| Amostragem predefinida | temperature 0.7, top-p 0.7, top-k 30 | Igual |
+| `repetition_penalty` | Ignorado | Ignorado |
+
+O Drama 3 tem ainda duas variáveis de ambiente: `FISH_DRAMA3_FP8_EXPERTS=0` ou `1` força especialistas desquantizados ou em FP8, e `FISH_DRAMA3_CUDA_GRAPH=0` desativa a descodificação com CUDA graphs.
+
+## Inferência WebUI
+
+### Awesome WebUI
+
+A Awesome WebUI é uma interface Web moderna construída com TypeScript, com funcionalidades mais ricas e melhor experiência de utilização.
+
+As imagens Docker do servidor já incluem a WebUI construída: abra `http://localhost:8080/ui` depois de o contentor arrancar. Os passos abaixo aplicam-se a execução a partir do código.
+
+**Construir a WebUI:**
+
+Precisa de ter Node.js e npm instalados na sua máquina ou servidor.
+
+1. Entre no diretório `awesome_webui`:
+   ```bash
+   cd awesome_webui
+   ```
+2. Instale as dependências:
+   ```bash
+   npm install
+   ```
+3. Construa a WebUI:
+   ```bash
+   npm run build
+   ```
+
+**Iniciar o servidor backend:**
+
+Depois de construir a WebUI, volte à raiz do projeto e inicie o servidor API (`--compile` é apenas para o S2-Pro; remova-o ao carregar o Drama 3):
+
+```bash
+python tools/api_server.py --listen 0.0.0.0:8888 --compile
+```
+
+**Acesso:**
+
+Com o servidor a correr, aceda pelo browser a:
+`http://localhost:8888/ui`

@@ -1,42 +1,25 @@
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Literal
 
 import torch
+from transformers import PreTrainedTokenizerFast
 
-from .tokenizer import MODALITY_TOKENS, FishTokenizer
-
-CODEBOOK_PAD_TOKEN_ID = 0
-
-
-@dataclass(kw_only=True)
-class BasePart:
-    pass
-
-
-@dataclass(kw_only=True)
-class VQPart(BasePart):
-    codes: torch.Tensor
-
-
-@dataclass(kw_only=True)
-class TextPart(BasePart):
-    text: str
-
-
-@dataclass(kw_only=True)
-class EncodedMessage:
-    tokens: torch.Tensor
-    labels: torch.Tensor
-    vq_mask_tokens: torch.Tensor | None = None
-    vq_mask_labels: torch.Tensor | None = None
-    vq_parts: list[torch.Tensor]
-    vq_require_losses: torch.Tensor | None = None
+from fish_speech.content_sequence import (
+    AudioPart,
+    BasePart,
+    ContentSequence,
+    EncodedMessage,
+    TextPart,
+    VQPart,
+)
+from fish_speech.tokenizer import IM_END_TOKEN, IM_START_TOKEN, MODALITY_TOKENS
 
 
 @dataclass(kw_only=True)
 class Message:
     role: Literal["system", "user", "assistant"]
-    parts: list[VQPart | TextPart] = field(default_factory=list)
+    parts: list[BasePart] = field(default_factory=list)
     add_im_start: bool = True
     add_im_end: bool = True
     cal_loss: bool = False
@@ -44,72 +27,6 @@ class Message:
 
     # By default, ignore the loss of the auto-generated im_start token
     ignore_im_start_loss: bool = True
-
-    def encode(
-        self: "Message",
-        tokenizer: FishTokenizer,
-    ) -> EncodedMessage:
-        all_tokens = []
-        all_labels = []
-
-        # Multi-modal tokens
-        vq_parts = []
-        vq_masks = []
-
-        parts = self.parts.copy()
-        if self.add_im_start:
-            modality_token = MODALITY_TOKENS[self.modality] if self.modality else ""
-            parts.insert(0, TextPart(text=f"<|im_start|>{self.role}\n{modality_token}"))
-
-        if self.add_im_end:
-            parts.append(TextPart(text="<|im_end|>"))
-
-        for part in parts:
-            if isinstance(part, TextPart):
-                tokens = torch.tensor(
-                    tokenizer.encode(part.text),
-                    dtype=torch.int,
-                )
-            elif isinstance(part, VQPart):
-                curr_codes = part.codes.clone()
-                tokens = torch.tensor(
-                    [
-                        tokenizer.semantic_id_to_token_id[i.item()]
-                        for i in curr_codes[0].int()
-                    ],
-                    dtype=torch.int,
-                )
-                vq_parts.append(curr_codes)
-            else:
-                raise ValueError(f"Unsupported part type: {type(part)}")
-
-            all_tokens.append(tokens)
-            if isinstance(part, VQPart):
-                vq_masks.append(torch.ones_like(tokens, dtype=torch.bool))
-            else:
-                vq_masks.append(torch.zeros_like(tokens, dtype=torch.bool))
-
-            if self.cal_loss:
-                all_labels.append(tokens.clone())
-            else:
-                all_labels.append(torch.full_like(tokens, -100))
-
-        tokens = torch.cat(all_tokens, dim=0)
-        labels = torch.cat(all_labels, dim=0)
-        vq_masks = torch.cat(vq_masks, dim=0)
-
-        assert tokens.shape == labels.shape == vq_masks.shape
-
-        if self.ignore_im_start_loss and self.add_im_start:
-            labels[: len(all_tokens[0])] = -100
-
-        return EncodedMessage(
-            tokens=tokens,
-            labels=labels,
-            vq_parts=vq_parts,
-            vq_mask_tokens=vq_masks,
-            vq_mask_labels=vq_masks,
-        )
 
 
 @dataclass
@@ -119,130 +36,118 @@ class Conversation:
     def __init__(self: "Conversation", messages: list[Message] | None = None):
         self.messages = messages or []
 
+    def _build_content_sequence(
+        self: "Conversation",
+        metadata: dict | None = None,
+    ) -> ContentSequence:
+        """
+        Build a ContentSequence from all messages.
+        Handles cal_loss inheritance from message to part level.
+        """
+        all_parts = []
+        for message in self.messages:
+            # Add im_start
+            if message.add_im_start:
+                modality_token = (
+                    MODALITY_TOKENS[message.modality] if message.modality else ""
+                )
+                all_parts.append(
+                    TextPart(
+                        text=f"{IM_START_TOKEN}{message.role}\n{modality_token}",
+                        cal_loss=not message.ignore_im_start_loss,
+                    )
+                )
+
+            # Add message parts
+            for part in message.parts:
+                # Inherit cal_loss from message if not set at part level
+                if not hasattr(part, "cal_loss") or part.cal_loss is False:
+                    new_part = deepcopy(part)
+                    new_part.cal_loss = message.cal_loss
+                    all_parts.append(new_part)
+                else:
+                    all_parts.append(part)
+
+            # Add im_end
+            if message.add_im_end:
+                all_parts.append(
+                    TextPart(text=IM_END_TOKEN + "\n", cal_loss=message.cal_loss)
+                )
+
+        return ContentSequence(parts=all_parts, modality=None, metadata=metadata)
+
     def encode(
         self: "Conversation",
-        tokenizer: FishTokenizer,
+        tokenizer: any,
         add_shift: bool = True,
         ignore_loss_tokens: list[str] = [],
+        metadata: dict | None = None,
+        max_length: int | None = None,
     ) -> EncodedMessage:
-        # Build the input_ids and labels
-        tokens = []
-        labels = []
-        vq_parts = []
-        vq_mask_tokens = []
-        vq_mask_labels = []
-        vq_require_losses = []
-        ignore_loss_token_ids = [tokenizer.get_token_id(i) for i in ignore_loss_tokens]
-
-        for message in self.messages:
-            encoded = message.encode(
-                tokenizer,
-            )
-            tokens.append(encoded.tokens)
-            labels.append(encoded.labels)
-            vq_parts.extend(encoded.vq_parts)
-            vq_mask_tokens.append(encoded.vq_mask_tokens)
-            vq_mask_labels.append(encoded.vq_mask_labels)
-            vq_require_losses.extend([message.cal_loss] * len(encoded.vq_parts))
-
-        tokens = torch.cat(tokens, dim=0)
-        labels = torch.cat(labels, dim=0)
-        vq_mask_tokens = torch.cat(vq_mask_tokens, dim=0)
-        vq_mask_labels = torch.cat(vq_mask_labels, dim=0)
-        vq_require_losses = torch.tensor(vq_require_losses, dtype=torch.bool)
-
-        if add_shift:
-            tokens = tokens[:-1]
-            labels = labels[1:]
-            vq_mask_tokens = vq_mask_tokens[:-1]
-            vq_mask_labels = vq_mask_labels[1:]
-
-        for i in ignore_loss_token_ids:
-            assert i != -100 and i is not None
-            labels[labels == i] = -100
-
-        assert tokens.dtype in [
-            torch.int,
-            torch.long,
-        ], f"Invalid dtype: {tokens.dtype}, conv: {conversation}"
-
-        return EncodedMessage(
-            tokens=tokens,
-            labels=labels,
-            vq_parts=vq_parts,
-            vq_mask_tokens=vq_mask_tokens,
-            vq_mask_labels=vq_mask_labels,
-            vq_require_losses=vq_require_losses,
+        # Build ContentSequence from messages
+        content_seq = self._build_content_sequence(metadata=metadata)
+        return content_seq.encode(
+            tokenizer,
+            add_shift=add_shift,
+            ignore_loss_tokens=ignore_loss_tokens,
+            max_length=max_length,
         )
 
     def encode_for_inference(
         self: "Conversation",
-        tokenizer: FishTokenizer,
+        tokenizer: any,
         num_codebooks: int,
-    ) -> EncodedMessage:
-        # self.visualize(tokenizer)
-
-        encoded = self.encode(tokenizer, add_shift=False)
-        tokens = encoded.tokens
-        values = torch.zeros((num_codebooks + 1, len(tokens)), dtype=torch.int)
-        values[0] = tokens
-
-        if encoded.vq_parts is None or len(encoded.vq_parts) == 0:
-            return values
-
-        vq_parts = encoded.vq_parts
-        vq_parts = [part.to(values.device) for part in vq_parts]
-        vq_parts = torch.cat(vq_parts, dim=1)
-        values[0, encoded.vq_mask_tokens] = vq_parts[0] + tokenizer.semantic_begin_id
-        values[1:, encoded.vq_mask_tokens] = vq_parts
-
-        return values
+        metadata: dict | None = None,
+    ):
+        content_seq = self._build_content_sequence(metadata=metadata)
+        return content_seq.encode_for_inference(tokenizer, num_codebooks=num_codebooks)
 
     def visualize(
         self: "Conversation",
-        tokenizer: FishTokenizer,
+        tokenizer: PreTrainedTokenizerFast,
         ignore_loss_tokens: list[str] = [],
+        merge_semantic_tokens: bool = False,
+        merge_audio_tokens: bool = False,
+        use_color: bool = True,
     ):
-        encoded = self.encode(
-            tokenizer, add_shift=False, ignore_loss_tokens=ignore_loss_tokens
+        """
+        Visualize the encoded sequence with color-coded tokens.
+        Blue/cyan tokens contribute to loss, green tokens do not.
+        """
+        # Build ContentSequence from messages and use its visualize method
+        content_seq = self._build_content_sequence()
+        content_seq.visualize(
+            tokenizer,
+            ignore_loss_tokens=ignore_loss_tokens,
+            merge_semantic_tokens=merge_semantic_tokens,
+            merge_audio_tokens=merge_audio_tokens,
+            use_color=use_color,
         )
-
-        colors = {
-            "purple": "\033[95m",
-            "yellow": "\033[93m",
-            "red": "\033[91m",
-            "cyan": "\033[96m",
-        }
-        first_idx = 0
-        second_idx = 0
-
-        def print_first_group(x):
-            nonlocal first_idx
-            color = colors["purple"] if first_idx % 2 == 0 else colors["yellow"]
-            print(f"{color}{x}\033[0m", end="")
-            first_idx += 1
-
-        def print_second_group(x):
-            nonlocal second_idx
-            color = colors["red"] if second_idx % 2 == 0 else colors["cyan"]
-            print(f"{color}{x}\033[0m", end="")
-            second_idx += 1
-
-        for tok, lab in zip(encoded.tokens, encoded.labels):
-            val = tokenizer.decode([tok])
-
-            if lab == -100:
-                print_second_group(val)
-            else:
-                print_first_group(val)
-
-        print()
 
     def append(self: "Conversation", message: Message):
         self.messages.append(message)
 
+    def to_content_sequence(
+        self: "Conversation",
+        metadata: dict | None = None,
+    ) -> ContentSequence:
+        """
+        Convert the Conversation to a ContentSequence.
+
+        This method builds a ContentSequence from all messages,
+        handling cal_loss inheritance from message to part level.
+
+        Args:
+            metadata: Optional metadata to include in the ContentSequence
+
+        Returns:
+            ContentSequence with all messages converted to parts
+        """
+        return self._build_content_sequence(metadata=metadata)
+
 
 if __name__ == "__main__":
+    # Test the new implementation with the same API
     message0 = Message(
         role="user",
         parts=[
@@ -258,9 +163,14 @@ if __name__ == "__main__":
         cal_loss=True,
     )
     conversation = Conversation([message0, message1])
-    tokenizer = FishTokenizer.from_pretrained("checkpoints/Qwen2-1.5B-Instruct")
+    tokenizer = PreTrainedTokenizerFast.from_pretrained("checkpoints/agent-0.6b-debug")
+
+    # Test with enhanced visualization from ContentSequence
+    print("Basic visualization:")
     conversation.visualize(tokenizer)
 
-    encoded = conversation.encode(tokenizer)
-    print(encoded)
-    print(tokenizer.batch_decode(encoded.tokens))
+    print("\nWith merged semantic tokens:")
+    conversation.visualize(tokenizer, merge_semantic_tokens=True)
+
+    print("\nWithout colors:")
+    conversation.visualize(tokenizer, use_color=False)
